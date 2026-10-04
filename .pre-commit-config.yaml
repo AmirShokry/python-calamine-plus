@@ -1,3 +1,5 @@
+# vendor/ is a third-party crate (calamine); keep its upstream formatting.
+exclude: ^vendor/
 repos:
     - repo: https://github.com/pre-commit/pre-commit-hooks
       rev: v4.5.0
@@ -45,7 +47,7 @@ repos:
           name: mypy-stubtest
           entry: stubtest
           args:
-            - python_calamine
+            - python_calamine_plus
           language: python
           pass_filenames: false
     -   repo: local

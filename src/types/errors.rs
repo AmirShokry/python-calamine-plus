@@ -8,17 +8,21 @@ pub enum Error {
     TablesNotSupported,
     TablesNotLoaded,
     WorkbookClosed,
+    StreamingNotSupported(&'static str),
+    StreamInvalidated,
 }
 
-create_exception!(python_calamine, CalamineError, PyException);
-create_exception!(python_calamine, PasswordError, CalamineError);
-create_exception!(python_calamine, WorksheetNotFound, CalamineError);
-create_exception!(python_calamine, XmlError, CalamineError);
-create_exception!(python_calamine, ZipError, CalamineError);
-create_exception!(python_calamine, WorkbookClosed, CalamineError);
-create_exception!(python_calamine, TablesNotSupported, CalamineError);
-create_exception!(python_calamine, TablesNotLoaded, CalamineError);
-create_exception!(python_calamine, TableNotFound, CalamineError);
+create_exception!(python_calamine_plus, CalamineError, PyException);
+create_exception!(python_calamine_plus, PasswordError, CalamineError);
+create_exception!(python_calamine_plus, WorksheetNotFound, CalamineError);
+create_exception!(python_calamine_plus, XmlError, CalamineError);
+create_exception!(python_calamine_plus, ZipError, CalamineError);
+create_exception!(python_calamine_plus, WorkbookClosed, CalamineError);
+create_exception!(python_calamine_plus, TablesNotSupported, CalamineError);
+create_exception!(python_calamine_plus, TablesNotLoaded, CalamineError);
+create_exception!(python_calamine_plus, TableNotFound, CalamineError);
+create_exception!(python_calamine_plus, StreamingNotSupported, CalamineError);
+create_exception!(python_calamine_plus, StreamInvalidated, CalamineError);
 
 impl From<Error> for PyErr {
     fn from(val: Error) -> Self {
@@ -73,6 +77,10 @@ impl From<Error> for PyErr {
             Error::WorkbookClosed => WorkbookClosed::new_err("".to_string()),
             Error::TablesNotLoaded => TablesNotLoaded::new_err("".to_string()),
             Error::TablesNotSupported => TablesNotSupported::new_err("".to_string()),
+            Error::StreamingNotSupported(msg) => StreamingNotSupported::new_err(msg),
+            Error::StreamInvalidated => StreamInvalidated::new_err(
+                "stream was replaced by another stream or sheet access on the same workbook",
+            ),
         }
     }
 }

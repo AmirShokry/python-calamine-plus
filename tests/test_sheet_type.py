@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from python_calamine import (
+from python_calamine_plus import (
     CalamineWorkbook,
     SheetMetadata,
     SheetTypeEnum,

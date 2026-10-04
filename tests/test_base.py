@@ -3,7 +3,7 @@ from io import BytesIO
 from pathlib import Path
 
 import pytest
-from python_calamine import (
+from python_calamine_plus import (
     CalamineWorkbook,
     PasswordError,
     WorkbookClosed,

@@ -1,14 +1,15 @@
 [package]
-name = "python-calamine"
-version = "0.8.2"
+name = "python-calamine-plus"
+version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "python_calamine"
+name = "python_calamine_plus"
 crate-type = ["cdylib"]
 
 [dependencies]
-calamine = { version = "0.36.0", features = ["chrono"] }
+# Vendored fork of calamine 0.36.1 with cell styles, comments and per-cell style ids.
+calamine = { path = "vendor/calamine", features = ["chrono"] }
 pyo3 = { version = "0.29.0", features = [
     "extension-module",
     "chrono",

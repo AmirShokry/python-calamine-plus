@@ -2,8 +2,9 @@ use pyo3::prelude::*;
 
 mod types;
 use crate::types::{
-    CalamineError, CalamineSheet, CalamineTable, CalamineWorkbook, CellValue, Error, PasswordError,
-    SheetMetadata, SheetTypeEnum, SheetVisibleEnum, TableNotFound, TablesNotLoaded,
+    CalamineCell, CalamineError, CalamineSheet, CalamineSheetStream, CalamineTable,
+    CalamineWorkbook, CellValue, Error, PasswordError, SheetMetadata, SheetTypeEnum,
+    SheetVisibleEnum, StreamInvalidated, StreamingNotSupported, TableNotFound, TablesNotLoaded,
     TablesNotSupported, WorkbookClosed, WorksheetNotFound, XmlError, ZipError,
 };
 
@@ -22,6 +23,8 @@ fn _python_calamine(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(load_workbook, m)?)?;
     m.add_class::<CalamineWorkbook>()?;
     m.add_class::<CalamineSheet>()?;
+    m.add_class::<CalamineSheetStream>()?;
+    m.add_class::<CalamineCell>()?;
     m.add_class::<SheetMetadata>()?;
     m.add_class::<SheetTypeEnum>()?;
     m.add_class::<SheetVisibleEnum>()?;
@@ -35,5 +38,10 @@ fn _python_calamine(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("TablesNotLoaded", py.get_type::<TablesNotLoaded>())?;
     m.add("TableNotFound", py.get_type::<TableNotFound>())?;
     m.add("WorkbookClosed", py.get_type::<WorkbookClosed>())?;
+    m.add(
+        "StreamingNotSupported",
+        py.get_type::<StreamingNotSupported>(),
+    )?;
+    m.add("StreamInvalidated", py.get_type::<StreamInvalidated>())?;
     Ok(())
 }

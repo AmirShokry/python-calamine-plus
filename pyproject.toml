@@ -1,12 +1,19 @@
 [project]
-name = "python-calamine"
-description = "Python binding for Rust's library for reading excel and odf file - calamine"
+name = "python-calamine-plus"
+description = "Fork of python-calamine that streams xlsx/xlsm sheets row by row in constant memory, with optional openpyxl-level detail (styles, formulas, comments, merged cells, hyperlinks, ...)"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
-authors = [{ name = "Dmitriy", email = "dimastbk@proton.me" }]
+authors = [
+  { name = "Asheer Mokry" },
+  { name = "Dmitriy", email = "dimastbk@proton.me" },
+]
+keywords = ["excel", "xlsx", "xlsm", "spreadsheet", "streaming", "calamine", "openpyxl"]
 classifiers = [
   "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Topic :: Office/Business :: Financial :: Spreadsheet",
   "Programming Language :: Rust",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
@@ -27,8 +34,10 @@ dev = [
 pyodide-build = ["pyodide-build"]
 
 [project.urls]
-homepage = "https://github.com/dimastbk/python-calamine"
-source = "https://github.com/dimastbk/python-calamine"
+homepage = "https://github.com/AmirShokry/python-calamine-plus"
+source = "https://github.com/AmirShokry/python-calamine-plus"
+issues = "https://github.com/AmirShokry/python-calamine-plus/issues"
+upstream = "https://github.com/dimastbk/python-calamine"
 
 [tool.isort]
 include_trailing_comma = true
@@ -38,7 +47,7 @@ profile = "black"
 
 [tool.mypy]
 python_version = "3.10"
-packages = ["python_calamine"]
+packages = ["python_calamine_plus"]
 ignore_missing_imports = false
 disallow_untyped_defs = true
 check_untyped_defs = true
@@ -48,5 +57,5 @@ requires = ["maturin>=1,<2"]
 build-backend = "maturin"
 
 [tool.maturin]
-module-name = "python_calamine._python_calamine"
+module-name = "python_calamine_plus._python_calamine"
 python-source = "python"

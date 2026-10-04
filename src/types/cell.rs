@@ -119,6 +119,12 @@ where
                 .get_bool()
                 .map(CellValue::Bool)
                 .unwrap_or(CellValue::Empty)
+        } else if value.is_error() {
+            // e.g. "#DIV/0!", like openpyxl, instead of an indistinguishable empty cell.
+            value
+                .get_error()
+                .map(|e| CellValue::String(e.to_string()))
+                .unwrap_or(CellValue::Empty)
         } else {
             CellValue::Empty
         }
