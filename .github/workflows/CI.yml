@@ -186,6 +186,9 @@ jobs:
         uses: re-actors/alls-green@b5b5b37504aa4183270bd3d855c52a67f212be35 # v1.3.0
         with:
           jobs: ${{ toJSON(needs) }}
+          # The Pyodide toolchain breaks independently of this code; don't block releases on it.
+          allowed-failures: test-pyemscripten
+          allowed-skips: test-pyemscripten
 
   build:
     name: build on ${{ matrix.os }} (${{ matrix.target }} - ${{ matrix.interpreter || 'all' }}${{ matrix.os == 'linux' && format(' - {0}', matrix.manylinux == 'auto' && 'manylinux' || matrix.manylinux) || '' }})
@@ -394,7 +397,7 @@ jobs:
           path: dist
 
   release:
-    needs: [build, build-pyemscripten, check, test-wheels]
+    needs: [build, check, test-wheels]
     if: success() && startsWith(github.ref, 'refs/tags/')
 
     runs-on: ubuntu-latest
@@ -420,7 +423,7 @@ jobs:
           attestations: false # attestations need trusted publishing; this uses an API token
 
   gh-release:
-    needs: [build, build-pyemscripten, check, test-wheels]
+    needs: [build, check, test-wheels]
     if: success() && startsWith(github.ref, 'refs/tags/')
 
     runs-on: ubuntu-latest
