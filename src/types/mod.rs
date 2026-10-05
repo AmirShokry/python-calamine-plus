@@ -1,5 +1,5 @@
 mod cell;
-mod convert;
+pub(crate) mod convert;
 mod errors;
 mod sheet;
 pub(crate) mod stream;

@@ -2364,6 +2364,18 @@ impl Hyperlink {
 /// (URL, file, etc.). Only relationships whose `Type` matches the OOXML
 /// hyperlink relationship are included. Sheets without a `.rels` file return
 /// an empty map.
+/// Fork fix: a text attribute with XML entities (`&amp;`, `&apos;`, ...) decoded, then
+/// Excel's `_xHHHH_` escapes. Malformed entities are kept as written.
+fn decode_text_attr<R: std::io::BufRead>(
+    xml: &XmlReader<R>,
+    val: &[u8],
+) -> Result<String, XlsxError> {
+    let decoded = xml.decoder().decode(val)?;
+    let unescaped = quick_xml::escape::unescape(&decoded)
+        .map_or_else(|_| decoded.to_string(), |u| u.into_owned());
+    Ok(unescape_xml(&unescaped).into_owned())
+}
+
 fn read_sheet_hyperlink_rels<RS>(
     zip: &mut ZipArchive<RS>,
     sheet_path: &str,
@@ -2401,11 +2413,7 @@ where
                     if let Some(id) = id.filter(|id| !id.is_empty()) {
                         let id = xml.decoder().decode(id)?.into_owned();
                         let target = target
-                            .map(|t| {
-                                xml.decoder()
-                                    .decode(t)
-                                    .map(|t| unescape_xml(&t).into_owned())
-                            })
+                            .map(|t| decode_text_attr(&xml, t))
                             .transpose()?
                             .unwrap_or_default();
                         rels.insert(id, target);
@@ -2455,16 +2463,9 @@ where
                         b"ref" => {
                             range = Some(get_dimension(val)?);
                         }
-                        b"location" => {
-                            location = Some(unescape_xml(&xml.decoder().decode(val)?).into_owned());
-                        }
-                        b"display" => {
-                            displayed_text =
-                                Some(unescape_xml(&xml.decoder().decode(val)?).into_owned());
-                        }
-                        b"tooltip" => {
-                            tooltip = Some(unescape_xml(&xml.decoder().decode(val)?).into_owned());
-                        }
+                        b"location" => location = Some(decode_text_attr(&xml, val)?),
+                        b"display" => displayed_text = Some(decode_text_attr(&xml, val)?),
+                        b"tooltip" => tooltip = Some(decode_text_attr(&xml, val)?),
                         // Match on the local name; the namespace prefix
                         // for the relationships namespace is conventionally
                         // "r" but OOXML allows any prefix bound to the
@@ -2539,6 +2540,82 @@ impl<RS: Read + Seek> Xlsx<RS> {
         let strings = &self.strings;
         let formats = &self.formats;
         XlsxCellReader::new(xml, strings, formats, is_1904)
+    }
+
+    /// Fork addition: the zip part path of a worksheet, for `XlsxCellContext::cells_reader`.
+    pub fn worksheet_part(&self, name: &str) -> Result<String, XlsxError> {
+        let (_, path) = self
+            .sheets
+            .iter()
+            .find(|&(n, _)| n == name)
+            .ok_or_else(|| XlsxError::WorksheetNotFound(name.into()))?;
+        Ok(cached_zip_path(&self.zip_path_cache, path).to_string())
+    }
+
+    /// Fork addition: moves the shared strings (and copies the number formats and
+    /// date system) out of this reader, so that any number of independent cell
+    /// readers can share them. Afterwards this reader's own cell readers
+    /// (`worksheet_range`, `worksheet_cells_reader`, ...) see no shared strings;
+    /// its metadata methods are unaffected.
+    pub fn take_cell_context(&mut self) -> XlsxCellContext {
+        XlsxCellContext {
+            strings: std::mem::take(&mut self.strings),
+            formats: self.formats.clone(),
+            is_1904: self.is_1904,
+        }
+    }
+}
+
+/// Fork addition: an independent handle on an xlsx archive (its own reader and
+/// zip directory), so a worksheet can be read without borrowing an `Xlsx`.
+pub struct XlsxArchive<RS> {
+    zip: ZipArchive<RS>,
+}
+
+impl<RS: Read + Seek> XlsxArchive<RS> {
+    /// Opens the zip directory of `reader`.
+    pub fn new(reader: RS) -> Result<Self, XlsxError> {
+        Ok(Self {
+            zip: ZipArchive::new(reader)?,
+        })
+    }
+}
+
+/// Fork addition: the workbook-wide tables cell readers need (shared strings,
+/// number formats, date system); see `Xlsx::take_cell_context`.
+pub struct XlsxCellContext {
+    strings: Vec<String>,
+    formats: Vec<CellFormat>,
+    is_1904: bool,
+}
+
+impl XlsxCellContext {
+    /// Workbook uses the 1904 date system.
+    pub fn is_1904(&self) -> bool {
+        self.is_1904
+    }
+
+    /// Opens a cell reader over worksheet `part` (see `Xlsx::worksheet_part`) of
+    /// `archive`. Readers on different archives are fully independent.
+    pub fn cells_reader<'a, RS: Read + Seek>(
+        &'a self,
+        archive: &'a mut XlsxArchive<RS>,
+        part: &str,
+    ) -> Result<XlsxCellReader<'a, RS>, XlsxError> {
+        let file = match archive.zip.by_name(part) {
+            Ok(f) => f,
+            Err(ZipError::FileNotFound) => {
+                return Err(XlsxError::WorksheetNotFound(part.to_string()))
+            }
+            Err(e) => return Err(e.into()),
+        };
+        let mut xml = XmlReader::from_reader(BufReader::new(file));
+        let config = xml.config_mut();
+        config.check_end_names = false;
+        config.trim_text(false);
+        config.check_comments = false;
+        config.expand_empty_elements = true;
+        XlsxCellReader::new(xml, &self.strings, &self.formats, self.is_1904)
     }
 }
 

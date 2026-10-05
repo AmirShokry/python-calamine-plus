@@ -1,3 +1,5 @@
+# Subpackages mirroring openpyxl (``utils``, ``styles``, and the ``openpyxl`` drop-in).
+from . import openpyxl, styles, utils
 from ._python_calamine import (
     CalamineCell,
     CalamineError,
@@ -5,6 +7,7 @@ from ._python_calamine import (
     CalamineSheetStream,
     CalamineTable,
     CalamineWorkbook,
+    CompatibilityNotSupported,
     PasswordError,
     SheetMetadata,
     SheetTypeEnum,
@@ -28,6 +31,7 @@ __all__ = (
     "CalamineSheetStream",
     "CalamineTable",
     "CalamineWorkbook",
+    "CompatibilityNotSupported",
     "PasswordError",
     "SheetMetadata",
     "SheetTypeEnum",
@@ -42,4 +46,7 @@ __all__ = (
     "XmlError",
     "ZipError",
     "load_workbook",
+    "openpyxl",
+    "styles",
+    "utils",
 )

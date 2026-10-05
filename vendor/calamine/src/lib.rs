@@ -121,8 +121,8 @@ pub use crate::xlsx::{
     DataValidation, DefinedName, DifferentialStyle, FilterColumn, FreezePane, HeaderFooter,
     Hyperlink, NamedStyle, RowAttributes, Scenario, Scenarios, SheetView, SortState,
     StyleAlignment, StyleBorder, StyleBorderSide, StyleColor, StyleFill, StyleFont, StyleGradient,
-    StyleSheet, TableColumn, TableInfo, TextRun, WorkbookInfo, WorksheetInfo, Xlsx,
-    XlsxCellFormula, XlsxCellFormulaMetadataRecord, XlsxCellReader, XlsxError, XlsxFormulaMetadata,
+    StyleSheet, TableColumn, TableInfo, TextRun, WorkbookInfo, WorksheetInfo, Xlsx, XlsxArchive,
+    XlsxCellContext, XlsxCellFormula, XlsxCellFormulaMetadataRecord, XlsxCellReader, XlsxError, XlsxFormulaMetadata,
 };
 
 // https://msdn.microsoft.com/en-us/library/office/ff839168.aspx

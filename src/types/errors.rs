@@ -10,6 +10,8 @@ pub enum Error {
     WorkbookClosed,
     StreamingNotSupported(&'static str),
     StreamInvalidated,
+    /// A value the openpyxl compatibility profile cannot read (raised as `ValueError`).
+    Compat(String),
 }
 
 create_exception!(python_calamine_plus, CalamineError, PyException);
@@ -81,6 +83,7 @@ impl From<Error> for PyErr {
             Error::StreamInvalidated => StreamInvalidated::new_err(
                 "stream was replaced by another stream or sheet access on the same workbook",
             ),
+            Error::Compat(msg) => pyo3::exceptions::PyValueError::new_err(msg),
         }
     }
 }

@@ -20,7 +20,9 @@ use crate::{Cell, XlsxError};
 #[derive(Clone, Debug)]
 struct SharedFormula {
     formula: String,
-    range: Dimensions,
+    /// Fork fix: the cell holding the formula text, which the text is relative to
+    /// (Excel, openpyxl). It is not always the first cell of the shared range.
+    origin: (u32, u32),
 }
 
 /// Workbook-level context used when reading cell values.
@@ -40,6 +42,10 @@ struct ValueBufs {
     last_sst: Option<usize>,
     capture_runs: bool,
     last_runs: Option<Vec<TextRun>>,
+    // Fork addition: the last numeric `<v>` had no `.`, `e` or `E` (openpyxl's int),
+    // and whether the last cell had an `<is>` (inline string) element.
+    last_int_literal: bool,
+    last_has_is: bool,
 }
 
 impl ValueBufs {
@@ -51,6 +57,8 @@ impl ValueBufs {
             last_sst: None,
             capture_runs: false,
             last_runs: None,
+            last_int_literal: false,
+            last_has_is: false,
         }
     }
 }
@@ -225,6 +233,11 @@ where
     // formulas, all `<f>` attributes.
     last_formula_kind: Option<String>,
     last_formula_attrs: Vec<(String, String)>,
+    // Fork addition: `t` attribute of the last cell, whether the sheet declares a
+    // `<dimension>`, and the last `<row>` index seen (rows without cells included).
+    last_cell_type: &'static str,
+    has_dimension: bool,
+    last_row_element: Option<u32>,
 }
 
 impl<'a, RS> XlsxCellReader<'a, RS>
@@ -240,6 +253,7 @@ where
     ) -> Result<Self, XlsxError> {
         let mut buf = Vec::with_capacity(1024);
         let mut dimensions = Dimensions::default();
+        let mut has_dimension = false;
         let mut sh_type = None;
         'xml: loop {
             buf.clear();
@@ -248,6 +262,7 @@ where
                     b"dimension" => {
                         if let Some(rdim) = e.raw_attr(b"ref")? {
                             dimensions = get_dimension(rdim)?;
+                            has_dimension = true;
                             continue 'xml;
                         }
                         return Err(XlsxError::UnexpectedNode("dimension"));
@@ -287,7 +302,38 @@ where
             cellless_rows: Vec::new(),
             last_formula_kind: None,
             last_formula_attrs: Vec::new(),
+            last_cell_type: "n",
+            has_dimension,
+            last_row_element: None,
         })
+    }
+
+    /// Fork addition: `t` attribute (`n`, `s`, `str`, `b`, `e`, `d`, `inlineStr`) of
+    /// the cell last returned by a `next_cell*` method (`n` when absent).
+    pub fn last_cell_type(&self) -> &'static str {
+        self.last_cell_type
+    }
+
+    /// Fork addition: the last numeric value read was written without `.`, `e` or
+    /// `E` (openpyxl reads such values as `int`).
+    pub fn last_value_is_int_literal(&self) -> bool {
+        self.value_bufs.last_int_literal
+    }
+
+    /// Fork addition: the last cell has an `<is>` (inline string) element, possibly empty.
+    pub fn last_cell_has_inline_string(&self) -> bool {
+        self.value_bufs.last_has_is
+    }
+
+    /// Fork addition: the sheet declares its used range in a `<dimension>` element.
+    pub fn has_dimension(&self) -> bool {
+        self.has_dimension
+    }
+
+    /// Fork addition: 0-based index of the last `<row>` element read so far,
+    /// including rows that have no cells.
+    pub fn last_row_element(&self) -> Option<u32> {
+        self.last_row_element
     }
 
     /// Fork addition: style id (index into `Xlsx::cell_styles`) of the cell last
@@ -364,6 +410,7 @@ where
                     self.row_index = index;
                     self.row_attrs = attrs;
                     self.row_had_cells = false;
+                    self.last_row_element = Some(index);
                 }
                 Ok(Event::End(row_element)) if row_element.local_name().as_ref() == b"row" => {
                     self.end_row();
@@ -376,6 +423,9 @@ where
                     self.last_formula_attrs.clear();
                     let (pos_attr, style_attr, type_attr) =
                         get_attrs!(c_element, b"r" => r, b"s" => s, b"t" => t)?;
+                    self.last_cell_type = cell_type_name(type_attr);
+                    self.value_bufs.last_int_literal = false;
+                    self.value_bufs.last_has_is = false;
                     let pos = if let Some(range) = pos_attr {
                         let (row, col) = get_row_column(range)?;
                         self.col_index = col;
@@ -457,7 +507,7 @@ where
                         }
                         formulas[shared_index] = Some(SharedFormula {
                             formula: formula.clone(),
-                            range,
+                            origin: pos,
                         });
                     }
                     Ok(Some(FormulaMetadata::Shared {
@@ -472,7 +522,7 @@ where
                             .get(shared_index)
                             .and_then(|template| template.as_ref())
                             .map(|template| {
-                                expand_shared_formula(&template.formula, template.range.start, pos)
+                                expand_shared_formula(&template.formula, template.origin, pos)
                             })
                             .transpose()?
                     } else {
@@ -533,6 +583,7 @@ where
                     self.row_index = index;
                     self.row_attrs = attrs;
                     self.row_had_cells = false;
+                    self.last_row_element = Some(index);
                 }
                 Ok(Event::End(row_element)) if row_element.local_name().as_ref() == b"row" => {
                     self.end_row();
@@ -545,6 +596,9 @@ where
                     self.last_formula_attrs.clear();
                     let (pos_attr, style_attr, type_attr) =
                         get_attrs!(c_element, b"r" => r, b"s" => s, b"t" => t)?;
+                    self.last_cell_type = cell_type_name(type_attr);
+                    self.value_bufs.last_int_literal = false;
+                    self.value_bufs.last_has_is = false;
                     let pos = if let Some(range) = pos_attr {
                         let (row, col) = get_row_column(range)?;
                         self.col_index = col;
@@ -695,6 +749,7 @@ where
 {
     Ok(match e.local_name().as_ref() {
         b"is" if bufs.capture_runs => {
+            bufs.last_has_is = true;
             // inlineStr, keeping its formatting runs (fork addition)
             let closing = e.local_name().as_ref().to_vec();
             let (text, runs) = read_inline_rich(xml, &closing, &mut bufs.xml, &mut bufs.str_inner)?;
@@ -703,6 +758,7 @@ where
         }
         b"is" => {
             // inlineStr
+            bufs.last_has_is = true;
             read_string_with_bufs(xml, e.name(), &mut bufs.xml, &mut bufs.str_inner)?
                 .map_or(DataRef::Empty, DataRef::String)
         }
@@ -723,6 +779,7 @@ where
                         if type_attr == Some(b"s") {
                             bufs.last_sst = atoi_simd::parse::<usize, true, false>(&t).ok();
                         }
+                        bufs.last_int_literal = !t.iter().any(|b| matches!(b, b'.' | b'e' | b'E'));
                         read_v(ctx, &t, style_attr, type_attr)?
                     }
                     Event::End(end) if end.name() == e.name() => return Ok(DataRef::Empty),
@@ -834,6 +891,19 @@ fn read_v<'s>(
             let t = std::str::from_utf8(t).unwrap_or("<utf8 error>").to_string();
             Err(XlsxError::CellTAttribute(t))
         }
+    }
+}
+
+/// Fork addition: the `t` attribute of a `<c>` element as a static name.
+fn cell_type_name(t: Option<&[u8]>) -> &'static str {
+    match t {
+        Some(b"s") => "s",
+        Some(b"str") => "str",
+        Some(b"b") => "b",
+        Some(b"e") => "e",
+        Some(b"d") => "d",
+        Some(b"inlineStr") => "inlineStr",
+        _ => "n",
     }
 }
 

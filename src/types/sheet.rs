@@ -250,7 +250,8 @@ impl CalamineCellIterator {
         CalamineCellIterator {
             empty_row,
             position: 0,
-            start: range.start().unwrap(),
+            // An empty sheet has no start; it yields no rows (like `to_python()`).
+            start: range.start().unwrap_or_default(),
             iter: unsafe {
                 std::mem::transmute::<
                     calamine::Rows<'_, calamine::Data>,

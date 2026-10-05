@@ -72,6 +72,18 @@ pub struct StyleFont {
     pub condense: bool,
     /// Extend.
     pub extend: bool,
+    /// Fork addition (openpyxl compatibility): `strike` as stored, `None` when absent.
+    pub raw_strike: Option<bool>,
+    /// Fork addition (openpyxl compatibility): `outline` as stored, `None` when absent.
+    pub raw_outline: Option<bool>,
+    /// Fork addition (openpyxl compatibility): `shadow` as stored, `None` when absent.
+    pub raw_shadow: Option<bool>,
+    /// Fork addition (openpyxl compatibility): `condense` as stored, `None` when absent.
+    pub raw_condense: Option<bool>,
+    /// Fork addition (openpyxl compatibility): `extend` as stored, `None` when absent.
+    pub raw_extend: Option<bool>,
+    /// Fork addition (openpyxl compatibility): `vertAlign` as stored (including `baseline`).
+    pub raw_vert_align: Option<String>,
 }
 
 /// Gradient of a gradient fill.
@@ -138,6 +150,11 @@ pub struct StyleBorder {
     pub diagonal_down: bool,
     /// Apply to the outline of a range.
     pub outline: bool,
+    /// Fork addition (openpyxl compatibility): edges present in the file, as bits
+    /// (left 1, right 2, top 4, bottom 8, diagonal 16, vertical 32, horizontal 64).
+    pub raw_sides: u8,
+    /// Fork addition (openpyxl compatibility): `outline` as stored, `None` when absent.
+    pub raw_outline: Option<bool>,
 }
 
 /// Alignment of a cell format.
@@ -161,6 +178,12 @@ pub struct StyleAlignment {
     pub reading_order: Option<u32>,
     /// Relative indent.
     pub relative_indent: Option<i32>,
+    /// Fork addition (openpyxl compatibility): `wrapText` as stored, `None` when absent.
+    pub raw_wrap_text: Option<bool>,
+    /// Fork addition (openpyxl compatibility): `shrinkToFit` as stored, `None` when absent.
+    pub raw_shrink_to_fit: Option<bool>,
+    /// Fork addition (openpyxl compatibility): `justifyLastLine` as stored, `None` when absent.
+    pub raw_justify_last_line: Option<bool>,
 }
 
 /// A resolved cell format (`<xf>` in `cellXfs`). A cell's `s` attribute indexes these.
@@ -188,6 +211,9 @@ pub struct CellStyle {
     pub quote_prefix: bool,
     /// Pivot table button.
     pub pivot_button: bool,
+    /// Fork addition (openpyxl compatibility): the number format is defined in the
+    /// file's `<numFmts>` (not a built-in id).
+    pub number_format_custom: bool,
 }
 
 /// A differential format (`<dxf>`), applied by conditional formatting rules.
@@ -226,6 +252,10 @@ pub struct StyleSheet {
     pub differential_styles: Vec<DifferentialStyle>,
     /// Named styles.
     pub named_styles: Vec<NamedStyle>,
+    /// Fork addition (openpyxl compatibility): the format of a cell without a style
+    /// array (first font, fill and border, default alignment and protection), which
+    /// openpyxl gives to cells it creates; `None` without a stylesheet.
+    pub zero_style: Option<CellStyle>,
 }
 
 /// A cell comment (legacy note; threaded comments are exported by Excel as notes too).
@@ -552,6 +582,9 @@ pub struct WorksheetInfo {
     pub scenarios: Option<Scenarios>,
     /// Tables.
     pub tables: Vec<TableInfo>,
+    /// Fork addition (openpyxl compatibility): bounding box (0-based) of all `<c>`
+    /// elements, only filled by `Xlsx::worksheet_info_with_bounds`.
+    pub cell_bounds: Option<Dimensions>,
 }
 
 /// A custom document property (`docProps/custom.xml`).
@@ -763,17 +796,33 @@ fn apply_font<RS: Read + Seek>(
     match tag {
         b"b" => font.bold = flag(xml, e)?,
         b"i" => font.italic = flag(xml, e)?,
-        b"strike" => font.strike = flag(xml, e)?,
-        b"outline" => font.outline = flag(xml, e)?,
-        b"shadow" => font.shadow = flag(xml, e)?,
-        b"condense" => font.condense = flag(xml, e)?,
-        b"extend" => font.extend = flag(xml, e)?,
+        b"strike" => {
+            font.strike = flag(xml, e)?;
+            font.raw_strike = Some(font.strike);
+        }
+        b"outline" => {
+            font.outline = flag(xml, e)?;
+            font.raw_outline = Some(font.outline);
+        }
+        b"shadow" => {
+            font.shadow = flag(xml, e)?;
+            font.raw_shadow = Some(font.shadow);
+        }
+        b"condense" => {
+            font.condense = flag(xml, e)?;
+            font.raw_condense = Some(font.condense);
+        }
+        b"extend" => {
+            font.extend = flag(xml, e)?;
+            font.raw_extend = Some(font.extend);
+        }
         b"u" => {
             let v = attr(xml, e, b"val")?.unwrap_or_else(|| "single".to_string());
             font.underline = (v != "none").then_some(v);
         }
         b"vertAlign" => {
-            font.vert_align = attr(xml, e, b"val")?.filter(|v| v != "baseline");
+            font.raw_vert_align = attr(xml, e, b"val")?;
+            font.vert_align = font.raw_vert_align.clone().filter(|v| v != "baseline");
         }
         b"sz" => font.size = attr_num(xml, e, b"val")?,
         b"name" | b"rFont" => font.name = attr(xml, e, b"val")?,
@@ -848,10 +897,12 @@ fn new_border<RS: Read + Seek>(
     xml: &XlReader<'_, RS>,
     e: &BytesStart<'_>,
 ) -> Result<StyleBorder, XlsxError> {
+    let outline = attr(xml, e, b"outline")?;
     Ok(StyleBorder {
         diagonal_up: attr_bool(xml, e, b"diagonalUp")?,
         diagonal_down: attr_bool(xml, e, b"diagonalDown")?,
-        outline: attr_bool(xml, e, b"outline")?,
+        outline: matches!(outline.as_deref(), Some("1") | Some("true")),
+        raw_outline: outline.map(|v| v == "1" || v == "true"),
         ..Default::default()
     })
 }
@@ -867,6 +918,15 @@ fn apply_border<RS: Read + Seek>(
     if let Some(s) = border_side(border, tag) {
         s.style = attr(xml, e, b"style")?;
         *side = Some(tag.to_vec());
+        border.raw_sides |= match tag {
+            b"left" | b"start" => 1,
+            b"right" | b"end" => 2,
+            b"top" => 4,
+            b"bottom" => 8,
+            b"diagonal" => 16,
+            b"vertical" => 32,
+            _ => 64,
+        };
     } else if tag == b"color" {
         if let Some(s) = side.as_deref().and_then(|t| border_side(border, t)) {
             s.color = Some(color(xml, e)?);
@@ -879,6 +939,9 @@ fn alignment<RS: Read + Seek>(
     xml: &XlReader<'_, RS>,
     e: &BytesStart<'_>,
 ) -> Result<StyleAlignment, XlsxError> {
+    let tristate = |name: &[u8]| -> Result<Option<bool>, XlsxError> {
+        Ok(attr(xml, e, name)?.map(|v| v == "1" || v == "true"))
+    };
     Ok(StyleAlignment {
         horizontal: attr(xml, e, b"horizontal")?,
         vertical: attr(xml, e, b"vertical")?,
@@ -889,6 +952,9 @@ fn alignment<RS: Read + Seek>(
         justify_last_line: attr_bool(xml, e, b"justifyLastLine")?,
         reading_order: attr_num(xml, e, b"readingOrder")?,
         relative_indent: attr_num(xml, e, b"relativeIndent")?,
+        raw_wrap_text: tristate(b"wrapText")?,
+        raw_shrink_to_fit: tristate(b"shrinkToFit")?,
+        raw_justify_last_line: tristate(b"justifyLastLine")?,
     })
 }
 
@@ -1217,9 +1283,25 @@ impl<RS: Read + Seek> Xlsx<RS> {
                 named_style: style_name(xf.xf_id.unwrap_or(0)),
                 quote_prefix: xf.quote_prefix,
                 pivot_button: xf.pivot_button,
+                number_format_custom: number_formats.contains_key(&xf.num_fmt_id),
             })
             .collect();
+        let zero_style = Some(CellStyle {
+            number_format_id: 0,
+            number_format: "General".to_string(),
+            font: fonts.first().cloned().unwrap_or_default(),
+            fill: fills.first().cloned().unwrap_or_default(),
+            border: borders.first().cloned().unwrap_or_default(),
+            alignment: StyleAlignment::default(),
+            locked: true,
+            hidden: false,
+            named_style: style_name(0),
+            quote_prefix: false,
+            pivot_button: false,
+            number_format_custom: false,
+        });
         Ok(StyleSheet {
+            zero_style,
             cell_styles: cell_formats,
             differential_styles: dxfs,
             named_styles: cell_styles
@@ -1615,6 +1697,20 @@ impl<RS: Read + Seek> Xlsx<RS> {
     /// Everything a worksheet stores outside its cell values, in one pass over the
     /// sheet XML (cells are skipped; only `<row>` attributes are read), plus its tables.
     pub fn worksheet_info(&mut self, name: &str) -> Result<WorksheetInfo, XlsxError> {
+        self.worksheet_info_impl(name, false)
+    }
+
+    /// Fork addition (openpyxl compatibility): `worksheet_info`, plus the bounding
+    /// box of every stored cell (`WorksheetInfo::cell_bounds`), from the same pass.
+    pub fn worksheet_info_with_bounds(&mut self, name: &str) -> Result<WorksheetInfo, XlsxError> {
+        self.worksheet_info_impl(name, true)
+    }
+
+    fn worksheet_info_impl(
+        &mut self,
+        name: &str,
+        track_cells: bool,
+    ) -> Result<WorksheetInfo, XlsxError> {
         let path = self.sheet_path(name)?;
         let rels = read_sheet_hyperlink_rels(&mut self.zip, &path, &self.zip_path_cache)?;
         let mut info = WorksheetInfo::default();
@@ -1622,7 +1718,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
         {
             let mut xml = xml_reader(&mut self.zip, &path, &self.zip_path_cache)
                 .ok_or_else(|| XlsxError::WorksheetNotFound(name.into()))??;
-            read_worksheet_xml(&mut xml, &rels, &mut info, &mut table_ids)?;
+            read_worksheet_xml(&mut xml, &rels, &mut info, &mut table_ids, track_cells)?;
         }
 
         // Tables live in their own parts.
@@ -1733,6 +1829,7 @@ fn read_worksheet_xml<RS: Read + Seek>(
     rels: &HashMap<String, String>,
     info: &mut WorksheetInfo,
     table_ids: &mut Vec<String>,
+    track_cells: bool,
 ) -> Result<(), XlsxError> {
     // Open elements below <worksheet> (elements read by helpers are never pushed).
     let mut stack: Vec<Vec<u8>> = Vec::new();
@@ -1751,7 +1848,8 @@ fn read_worksheet_xml<RS: Read + Seek>(
                 let top_level = stack.len() == 1; // directly below <worksheet>
                 match tag {
                     b"sheetData" => {
-                        read_row_attributes(xml, &mut row_buf, &mut info.rows)?;
+                        let bounds = track_cells.then_some(&mut info.cell_bounds);
+                        read_row_attributes(xml, &mut row_buf, &mut info.rows, bounds)?;
                         continue;
                     }
                     b"mergeCells" if top_level => {
@@ -2046,16 +2144,35 @@ fn read_row_attributes<RS: Read + Seek>(
     xml: &mut XlReader<'_, RS>,
     buf: &mut Vec<u8>,
     rows: &mut Vec<RowAttributes>,
+    mut bounds: Option<&mut Option<Dimensions>>,
 ) -> Result<(), XlsxError> {
     let mut row_index = 0u32;
+    let mut col_index = 0u32;
     loop {
         buf.clear();
         match xml.read_event_into(buf)? {
             Event::Start(e) if e.local_name().as_ref() == b"row" => {
                 let (index, attrs) = parse_row(&e, row_index)?;
                 row_index = index;
+                col_index = 0;
                 if let Some(a) = attrs {
                     rows.push(a);
+                }
+            }
+            Event::Start(e) if bounds.is_some() && e.local_name().as_ref() == b"c" => {
+                let pos = match e.raw_attr(b"r")? {
+                    Some(r) => get_row_column(r)?,
+                    None => (row_index, col_index),
+                };
+                col_index = pos.1 + 1;
+                if let Some(b) = bounds.as_deref_mut() {
+                    *b = Some(match *b {
+                        None => Dimensions::new(pos, pos),
+                        Some(d) => Dimensions::new(
+                            (d.start.0.min(pos.0), d.start.1.min(pos.1)),
+                            (d.end.0.max(pos.0), d.end.1.max(pos.1)),
+                        ),
+                    });
                 }
             }
             Event::End(e) => match e.local_name().as_ref() {
