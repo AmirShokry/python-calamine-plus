@@ -1,4 +1,9 @@
-# Subpackages mirroring openpyxl (``utils``, ``styles``, and the ``openpyxl`` drop-in).
+"""Streaming Excel reader (python-calamine fork).
+
+``utils``, ``styles`` and the ``openpyxl`` drop-in package mirror openpyxl's modules for
+``load_workbook(..., compatibility="openpyxl")``.
+"""
+
 from . import openpyxl, styles, utils
 from ._python_calamine import (
     CalamineCell,
